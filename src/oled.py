@@ -2,6 +2,7 @@ from PIL import Image, ImageDraw, ImageFont
 import textwrap
 import operator
 import itertools
+import os
 
 from peripherals import OLED
 
@@ -20,7 +21,7 @@ def show_msg(msg: str, *, tight=False, big=False, dbg=True):
     draw = ImageDraw.Draw(image)
 
     # Get the font we want to draw with
-    font = ImageFont.truetype('m5x7.ttf', 24 if big else 16)
+    font = ImageFont.truetype(os.path.join(os.path.dirname(__file__), 'm5x7.ttf'), 24 if big else 16)
 
     # Wrap into multiple lines (preserving excisting newlines)
     # with width depending on the font size

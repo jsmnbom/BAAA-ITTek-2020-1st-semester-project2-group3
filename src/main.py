@@ -1,3 +1,17 @@
+#!/usr/bin/env python3
+"""
+
+To easily test this project without running it on multiple devices,
+first make sure you have ipython version >= 7.
+Then start this script by `./src/main.py` or `python3 src/main.py`
+Then in another terminal start `ipython3` inside the src/ directory.
+```
+from main import *
+await connect()
+```
+This is possible due to the use of a lazy proxy to load all hardware elements.
+See src/peripherals.py for more info.
+"""
 import json
 import uuid
 import asyncio
@@ -16,6 +30,20 @@ from gmqtt import Client as MQTTClient
 from peripherals import BUTTON, LED_KEY
 import oled
 
+
+class State(Enum):
+    Discover = 0
+    Leader = 1
+    Guesser = 2
+
+
+# The three states we can be in when discovering
+class DiscoverState(Enum):
+    Unknown = 0
+    Host = 1
+    Client = 2
+
+
 # The base topic to send and receive on
 BASE_TOPIC = 'BAAA-ITTek/2020/1st-semester/project2/group3/'
 
@@ -25,22 +53,8 @@ UUID = str(uuid.uuid4())
 # Our MQTT client, initialized with our uuid
 client = MQTTClient(client_id=UUID)
 
-
-class State(Enum):
-    Discover = 0
-    Leader = 1
-    Guesser = 2
-
-
+# Current global state
 state = State.Discover
-
-
-# The three states we can be in when discovering
-class DiscoverState(Enum):
-    Unknown = 0
-    Host = 1
-    Client = 2
-
 
 # Current discover state
 discover_state = DiscoverState.Unknown
@@ -79,8 +93,9 @@ async def on_message(client, topic, payload, qos, properties):
                 discover_state == DiscoverState.Unknown
                 or discover_state == DiscoverState.Host):
             discover_state = DiscoverState.Host
-            # Add it's uuid to our list
-            player_uuids.append(payload['uuid'])
+            # Add it's uuid to our list if not already there
+            if payload['uuid'] not in player_uuids:
+                player_uuids.append(payload['uuid'])
             # And send an acknowledgement
             client.publish(BASE_TOPIC + 'discover/ack',
                            payload=dict(uuid=UUID, player_uuids=player_uuids))
@@ -101,6 +116,7 @@ async def on_message(client, topic, payload, qos, properties):
                           f'Current players: {len(player_uuids)}')
             LED_KEY.segments[0] = f'PLAYER {player}'
 
+    # When on_message is async we need a return value
     return 0
 
 
@@ -213,24 +229,24 @@ async def button_pressed():
             # Ignore the button press if client
             pass
 
+async def connect():
+    """Connect to mqtt server, and send discover/find."""
+    # Connect to the mqtt server using default port
+    await client.connect('mqtt.eclipse.org')
+
+    # Look for other players
+    client.publish(BASE_TOPIC + 'discover/find', payload=dict(uuid=UUID))
 
 async def main():
     # Setup event handlers
     client.on_connect = on_connect
     client.on_message = on_message
 
-    # Show welcome msg
-    oled.show_msg('Welcome to blahhh.', big=True)
-
-    # Connect to the mqtt server using default port
-    await client.connect('mqtt.eclipse.org')
+    await connect()
 
     oled.show_msg('Looking for other players.', big=True)
 
     LED_KEY.segments[0] = f'SCANNING'
-
-    # Look for other players
-    client.publish(BASE_TOPIC + 'discover/find', payload=dict(uuid=UUID))
 
     button_was_pressed = False
 
@@ -306,3 +322,4 @@ if __name__ == '__main__':
     except asyncio.CancelledError:
         # ignore
         pass
+
