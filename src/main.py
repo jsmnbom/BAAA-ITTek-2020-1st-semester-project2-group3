@@ -322,6 +322,8 @@ async def shutdown(loop):
     # Then shutdown the event loop
     loop.stop()
 
+    exit()
+
 
 def handle_exception(loop, context):
     print(context.get('message', 'Unhandled exception.'))
