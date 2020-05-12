@@ -27,7 +27,7 @@ from enum import Enum
 # It also allows us to use asyncio
 from gmqtt import Client as MQTTClient
 
-from peripherals import BUTTON, LED_KEY
+import peripherals
 import oled
 
 
@@ -61,6 +61,10 @@ discover_state = DiscoverState.Unknown
 # Player uuids we know of incl. ourselves
 player_uuids = [UUID]
 
+# State.Leader variables
+correct_number = 0
+guesses = {}
+
 
 def on_connect(client, flags, rc, properties):
     print('Connected with result code ' + str(rc))
@@ -82,8 +86,28 @@ async def on_message(client, topic, payload, qos, properties):
     if payload['uuid'] == UUID:
         return
 
+    # If we got some roles then the game is starting
     if topic == 'game/roles':
         await start_round(payload)
+
+    # If the game is ongoing and we're the leader
+    if state == State.Leader:
+        if topic == 'game/guess':
+            guesses[payload['uuid']] = payload['guess']
+            print("guesses:", guesses)
+            if len(guesses) == len(player_uuids) - 1:
+                # TODO: figure out who won and sleep a bit (or require button push) to continue
+                # Start a new round
+                if discover_state == DiscoverState.Host:
+                    await new_round()
+                else:
+                    client.publish(BASE_TOPIC + 'game/new_round', payload=True)
+
+    # If we are the host
+    if discover_state == DiscoverState.Host:
+        # Start a new round when we are asked to
+        if topic == 'game/new_round':
+            new_round()
 
     # Only if we're still discovering
     # TODO: Allow players to join while the game is ongoing
@@ -96,32 +120,35 @@ async def on_message(client, topic, payload, qos, properties):
             # Add it's uuid to our list if not already there
             if payload['uuid'] not in player_uuids:
                 player_uuids.append(payload['uuid'])
+            print("players:", player_uuids)
             # And send an acknowledgement
             client.publish(BASE_TOPIC + 'discover/ack',
                            payload=dict(uuid=UUID, player_uuids=player_uuids))
             oled.show_msg(f'You are the host (player 1).\n'
                           f'Current players: {len(player_uuids)}.\n'
                           f'Press button to start the game.')
-            LED_KEY.segments[0] = f'PLAYER 1'
+            peripherals.led_key.segments[0] = f'PLAYER 1'
         elif topic == 'discover/ack' and (
                 discover_state == DiscoverState.Unknown
                 or discover_state == DiscoverState.Client):
             discover_state = DiscoverState.Client
             # Update our uuids
             player_uuids = payload['player_uuids']
+            print("players:", player_uuids)
             # Display a message to the user
             player = player_uuids.index(UUID) + 1
             oled.show_msg(f'You are player {player}.\n'
                           f'Waiting for host to start the game.\n'
                           f'Current players: {len(player_uuids)}')
-            LED_KEY.segments[0] = f'PLAYER {player}'
+            peripherals.led_key.segments[0] = f'PLAYER {player}'
 
     # When on_message is async we need a return value
     return 0
 
 
 async def start_round(roles):
-    global state
+    global state, correct_number, guesses
+    guesses = {}
     if roles['leader'] == UUID:
         state = State.Leader
     else:
@@ -162,15 +189,15 @@ async def start_round(roles):
         # For each led
         for i in range(8):
             # Turn it on/off depending on remaining time
-            LED_KEY.leds[i] = i < (remaining_time / total_time) * 8
+            peripherals.led_key.leds[i] = i < (remaining_time / total_time) * 8
 
         # For each switch/segment
         for i in range(8):
             # Display the current number
-            LED_KEY.segments[i] = str(columns[i])
+            peripherals.led_key.segments[i] = str(columns[i])
 
             # Get the value
-            val = LED_KEY.switches[i]
+            val = peripherals.led_key.switches[i]
             # Get the previous value and last time it was pressed
             prev_val, prev_time = prev_switches[i]
             # If it is held down and wasn't before or we've been holding it for 0.3 sec
@@ -191,17 +218,19 @@ async def start_round(roles):
     for i in range(8):
         number += columns[i] * 10**i
 
-    print(number)
+    print("Entered number:", number)
 
     if state == State.Leader:
-        # TODO: save number
+        correct_number = number
         oled.show_msg('Waiting for other players.')
     elif state == State.Guesser:
-        # TODO: Send guess
+        client.publish(BASE_TOPIC + 'game/guess',
+                       payload=dict(uuid=UUID, guess=number))
         oled.show_msg('Waiting for result.')
 
 
 async def button_pressed():
+    """Function called when the main button is pressed"""
     print("Button pressed")
     global state
     if state == State.Discover:
@@ -212,22 +241,29 @@ async def button_pressed():
             if len(player_uuids) < 2:
                 print('No other players found.')
                 return
-
-            # Choose a leader for this round
-            leader = random.choice(player_uuids)
-            # The guessers are player_uuid but without the leader aka. the rest of the players
-            guessers = list(set(player_uuids) - {leader})
-
-            roles = dict(leader=leader, guessers=guessers)
-
-            client.publish(BASE_TOPIC + 'game/roles', payload=roles)
-
-            oled.show_msg('Starting game.', big=True)
-
-            await start_round(roles)
+            await new_round()
         elif discover_state == DiscoverState.Client:
             # Ignore the button press if client
             pass
+
+
+async def new_round():
+    """Host only function to start a new round."""
+    # Choose a leader for this round
+    # TODO: remove this debug statement
+    #leader = random.choice(player_uuids)
+    leader = player_uuids[0]
+    # The guessers are player_uuid but without the leader aka. the rest of the players
+    guessers = list(set(player_uuids) - {leader})
+
+    roles = dict(leader=leader, guessers=guessers)
+
+    client.publish(BASE_TOPIC + 'game/roles', payload=roles)
+
+    oled.show_msg('Starting game.', big=True)
+
+    await start_round(roles)
+
 
 async def connect():
     """Connect to mqtt server, and send discover/find."""
@@ -236,6 +272,7 @@ async def connect():
 
     # Look for other players
     client.publish(BASE_TOPIC + 'discover/find', payload=dict(uuid=UUID))
+
 
 async def main():
     # Setup event handlers
@@ -246,16 +283,16 @@ async def main():
 
     oled.show_msg('Looking for other players.', big=True)
 
-    LED_KEY.segments[0] = f'SCANNING'
+    peripherals.led_key.segments[0] = f'SCANNING'
 
     button_was_pressed = False
 
     # Run forever
     # TODO: Provide some other way than CTRL-C to exit?
     while True:
-        if BUTTON.value and not button_was_pressed:
+        if peripherals.button.value and not button_was_pressed:
             await button_pressed()
-        button_was_pressed = BUTTON.value
+        button_was_pressed = peripherals.button.value
 
         await asyncio.sleep(0.1)
 
@@ -267,9 +304,9 @@ async def shutdown(loop):
 
     # And clear the displays
     oled.clear()
-    LED_KEY.segments[0] = ' ' * 8
+    peripherals.led_key.segments[0] = ' ' * 8
     for i in range(8):
-        LED_KEY.leds[i] = False
+        peripherals.led_key.leds[i] = False
 
     # Make sure we're completely done with async stuff
     # See https://www.roguelynn.com/words/asyncio-exception-handling/
@@ -322,4 +359,3 @@ if __name__ == '__main__':
     except asyncio.CancelledError:
         # ignore
         pass
-

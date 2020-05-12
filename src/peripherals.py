@@ -11,15 +11,19 @@ from gpiozero import Button
 # without affecting the display and such. This allows us to more
 # easily test the libary and to provide fake clients and servers for testing.
 
-LED_KEY = Proxy(partial(TMBoards, dio=18, clk=15, stb=14, brightness=1))
+led_key = Proxy(partial(TMBoards, dio=18, clk=15, stb=14, brightness=1))
 
-BUTTON = Proxy(partial(Button, 23))
+button = Proxy(partial(Button, 23))
 
-OLED = Proxy(
-    partial(adafruit_ssd1306.SSD1306_SPI,
-            128,
-            64,
-            spi=board.SPI(),
-            dc=digitalio.DigitalInOut(board.D7),
-            reset=digitalio.DigitalInOut(board.D25),
-            cs=digitalio.DigitalInOut(board.D8)))
+
+def oled_factory():
+    return adafruit_ssd1306.SSD1306_SPI(128,
+                                        64,
+                                        spi=board.SPI(),
+                                        dc=digitalio.DigitalInOut(board.D7),
+                                        reset=digitalio.DigitalInOut(
+                                            board.D25),
+                                        cs=digitalio.DigitalInOut(board.D8))
+
+
+oled = Proxy(oled_factory)
