@@ -35,6 +35,7 @@ class State(Enum):
     Discover = 0
     Leader = 1
     Guesser = 2
+    End = 3
 
 
 # The three states we can be in when discovering
@@ -73,6 +74,9 @@ def on_connect(client, flags, rc, properties):
     # This requires a fairly recent MQTT broker though
     client.subscribe(BASE_TOPIC + '#', no_local=True)
 
+def find_winners():
+    closest = min(guesses.values(), key=lambda x:abs(x-correct_number))
+    return [uuid for uuid, guess in guesses.items() if guess == closest]
 
 async def on_message(client, topic, payload, qos, properties):
     # We will use these later
@@ -90,37 +94,31 @@ async def on_message(client, topic, payload, qos, properties):
     if topic == 'game/roles':
         await start_round(payload)
 
+    # If someone won then show the result
+    if topic == 'game/winners':
+        show_result(payload)
+
     # If the game is ongoing and we're the leader
     if state == State.Leader:
         if topic == 'game/guess':
             guesses[payload['uuid']] = payload['guess']
-            print("guesses:", guesses)
+            print('Guesses:', guesses)
             if len(guesses) == len(player_uuids) - 1:
-                # TODO: figure out who won and sleep a bit (or require button push) to continue
-                # Start a new round
-                if discover_state == DiscoverState.Host:
-                    await new_round()
-                else:
-                    client.publish(BASE_TOPIC + 'game/new_round', payload=True)
-
-    # If we are the host
-    if discover_state == DiscoverState.Host:
-        # Start a new round when we are asked to
-        if topic == 'game/new_round':
-            new_round()
+                winners = find_winners()
+                print('Winners: ', winners)
+                client.publish(BASE_TOPIC + 'game/winners', payload=winners)
+                show_result(winners)
 
     # Only if we're still discovering
     # TODO: Allow players to join while the game is ongoing
     if state == State.Discover:
         # If we are the host and we get a find request
-        if topic == 'discover/find' and (
-                discover_state == DiscoverState.Unknown
-                or discover_state == DiscoverState.Host):
+        if topic == 'discover/find' and discover_state != DiscoverState.Client:
             discover_state = DiscoverState.Host
             # Add it's uuid to our list if not already there
             if payload['uuid'] not in player_uuids:
                 player_uuids.append(payload['uuid'])
-            print("players:", player_uuids)
+            print('Players:', player_uuids)
             # And send an acknowledgement
             client.publish(BASE_TOPIC + 'discover/ack',
                            payload=dict(uuid=UUID, player_uuids=player_uuids))
@@ -128,13 +126,11 @@ async def on_message(client, topic, payload, qos, properties):
                           f'Current players: {len(player_uuids)}.\n'
                           f'Press button to start the game.')
             peripherals.led_key.segments[0] = f'PLAYER 1'
-        elif topic == 'discover/ack' and (
-                discover_state == DiscoverState.Unknown
-                or discover_state == DiscoverState.Client):
+        elif topic == 'discover/ack' and discover_state != DiscoverState.Host:
             discover_state = DiscoverState.Client
             # Update our uuids
             player_uuids = payload['player_uuids']
-            print("players:", player_uuids)
+            print('Players:', player_uuids)
             # Display a message to the user
             player = player_uuids.index(UUID) + 1
             oled.show_msg(f'You are player {player}.\n'
@@ -145,6 +141,30 @@ async def on_message(client, topic, payload, qos, properties):
     # When on_message is async we need a return value
     return 0
 
+def show_result(winners):
+    global state
+    if state == State.Leader:
+        if len(winners) == 0:
+            winner = player_uuids.index(winners[0]) + 1
+            oled.show_msg(f'Player {winner} won!')
+        else:
+            winners = [str(player_uuids.index(winner) + 1) for winner in winners]
+            oled.show_msg(f'Players {",".join(winners)} won!')
+    else:
+        if len(winners) == 0:
+            if UUID in winners:
+                oled.show_msg('You win!')
+            else:
+                winner = player_uuids.index(winners[0]) + 1
+                oled.show_msg(f'You lose!\nPlayer {winner} won!')
+        else:
+            if UUID in winners:
+                oled.show_msg('You win!')
+            else:
+                winners = [str(player_uuids.index(winner) + 1) for winner in winners]
+                oled.show_msg(f'You lose!\nPlayers {",".join(winners)} won!')
+
+    state = State.End
 
 async def start_round(roles):
     global state, correct_number, guesses
@@ -233,7 +253,7 @@ async def button_pressed():
     """Function called when the main button is pressed"""
     print("Button pressed")
     global state
-    if state == State.Discover:
+    if state == State.Discover or state == State.End:
         if discover_state == DiscoverState.Unknown:
             oled.show_msg('Looking for other players.\n'
                           'No other players found - cannot start game.')
