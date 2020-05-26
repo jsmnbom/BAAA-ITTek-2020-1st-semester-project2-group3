@@ -244,6 +244,8 @@ async def start_round(roles):
         correct_number = number
         oled.show_msg('Waiting for other players.')
     elif state == State.Guesser:
+        # Wait a sec to make sure the host is done
+        await asyncio.sleep(1)
         client.publish(BASE_TOPIC + 'game/guess',
                        payload=dict(uuid=UUID, guess=number))
         oled.show_msg('Waiting for result.')
