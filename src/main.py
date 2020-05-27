@@ -149,7 +149,7 @@ def show_result(winners):
             oled.show_msg(f'Player {winner} won!')
         else:
             winners = [str(player_uuids.index(winner) + 1) for winner in winners]
-            oled.show_msg(f'Players {",".join(winners)} won!')
+            oled.show_msg(f'Players {", ".join(winners)} won!')
     else:
         if len(winners) == 0:
             if UUID in winners:
@@ -162,7 +162,7 @@ def show_result(winners):
                 oled.show_msg('You win!')
             else:
                 winners = [str(player_uuids.index(winner) + 1) for winner in winners]
-                oled.show_msg(f'You lose!\nPlayers {",".join(winners)} won!')
+                oled.show_msg(f'You lose!\nPlayers {", ".join(winners)} won!')
 
     state = State.End
 
@@ -272,9 +272,7 @@ async def button_pressed():
 async def new_round():
     """Host only function to start a new round."""
     # Choose a leader for this round
-    # TODO: remove this debug statement
-    #leader = random.choice(player_uuids)
-    leader = player_uuids[0]
+    leader = random.choice(player_uuids)
     # The guessers are player_uuid but without the leader aka. the rest of the players
     guessers = list(set(player_uuids) - {leader})
 
