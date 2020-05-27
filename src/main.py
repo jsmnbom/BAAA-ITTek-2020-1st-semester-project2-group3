@@ -142,28 +142,34 @@ async def on_message(client, topic, payload, qos, properties):
     return 0
 
 def show_result(winners):
-    global state
+    global state, discover_state
+    
+    msg = ''
     if state == State.Leader:
         if len(winners) == 0:
             winner = player_uuids.index(winners[0]) + 1
-            oled.show_msg(f'Player {winner} won!')
+            msg = f'Player {winner} won!'
         else:
             winners = [str(player_uuids.index(winner) + 1) for winner in winners]
-            oled.show_msg(f'Players {", ".join(winners)} won!')
+            msg = f'Players {", ".join(winners)} won!'
     else:
         if len(winners) == 0:
             if UUID in winners:
-                oled.show_msg('You win!')
+                msg = 'You win!'
             else:
                 winner = player_uuids.index(winners[0]) + 1
-                oled.show_msg(f'You lose!\nPlayer {winner} won!')
+                msg = f'You lose!\nPlayer {winner} won!'
         else:
             if UUID in winners:
-                oled.show_msg('You win!')
+                msg = 'You win!'
             else:
                 winners = [str(player_uuids.index(winner) + 1) for winner in winners]
-                oled.show_msg(f'You lose!\nPlayers {", ".join(winners)} won!')
+                msg = f'You lose!\nPlayers {", ".join(winners)} won!'
 
+    if discover_state == DiscoverState.Host:
+        msg += '\nPress button to start the game.'
+    
+    oled.show_msg(msg)
     state = State.End
 
 async def start_round(roles):
