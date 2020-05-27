@@ -92,11 +92,11 @@ async def on_message(client, topic, payload, qos, properties):
 
     # If we got some roles then the game is starting
     if topic == 'game/roles':
-        await start_round(payload)
+        await start_round(payload['roles'])
 
     # If someone won then show the result
     if topic == 'game/winners':
-        show_result(payload)
+        show_result(payload['winners'])
 
     # If the game is ongoing and we're the leader
     if state == State.Leader:
@@ -106,7 +106,7 @@ async def on_message(client, topic, payload, qos, properties):
             if len(guesses) == len(player_uuids) - 1:
                 winners = find_winners()
                 print('Winners: ', winners)
-                client.publish(BASE_TOPIC + 'game/winners', payload=winners)
+                client.publish(BASE_TOPIC + 'game/winners', payload=dict(winners=winners, uuid=UUID))
                 show_result(winners)
 
     # Only if we're still discovering
@@ -280,7 +280,7 @@ async def new_round():
 
     roles = dict(leader=leader, guessers=guessers)
 
-    client.publish(BASE_TOPIC + 'game/roles', payload=roles)
+    client.publish(BASE_TOPIC + 'game/roles', payload=dict(roles=roles, uuid=UUID))
 
     oled.show_msg('Starting game.', big=True)
 
