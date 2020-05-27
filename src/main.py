@@ -235,7 +235,7 @@ async def start_round(roles):
 
     # Construct number from the place values
     number = 0
-    for i in range(8):
+    for i in range(7, -1, -1):
         number += columns[i] * 10**i
 
     print("Entered number:", number)
