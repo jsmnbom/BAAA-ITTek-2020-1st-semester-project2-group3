@@ -3,3 +3,4 @@ Pillow
 adafruit-circuitpython-ssd1306
 gpiozero
 git+https://github.com/thilaire/rpi-TM1638@edb13c41cf2f94e658bccdeddc96dc8f12facead#egg=rpi_TM1638
+lazy-object-proxy
